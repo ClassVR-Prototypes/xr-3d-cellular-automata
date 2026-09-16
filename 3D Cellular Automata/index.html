@@ -1488,9 +1488,16 @@ AFRAME.registerComponent('xr-kit', {
   }
 
   // A cube that has emptied, settled, or filled itself solid starts over, so
-  // there is always something moving in front of the player.
+  // there is always something moving in front of the player. Losing every
+  // living cell counts as empty even while fading ones are still on their way
+  // out: nothing can be born from a neighbourhood of nothing, unless the rule
+  // says 0 neighbours is a birth, so the cube is finished either way.
   function stale() {
-    return APP.shownCount === 0 || APP.frozen > 12 || APP.liveCount > 0.42 * CELLS;
+    var r = rule();
+    return APP.shownCount === 0
+        || (APP.liveCount === 0 && !r.bornSet[0])
+        || APP.frozen > 12
+        || APP.liveCount > 0.42 * CELLS;
   }
 
   APP.step   = function () { step(); };
