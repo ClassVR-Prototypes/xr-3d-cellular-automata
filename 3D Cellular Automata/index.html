@@ -8,7 +8,7 @@
 <!-- Build number. Shown in the panel before you enter VR, so you can tell at a
      glance whether the headset is running your newest version. The publish
      step increments this automatically whenever the file has changed. -->
-<script>window.BUILD = 1;</script>
+<script>window.BUILD = 2;</script>
 
 <!-- Controls shown on the panel, in two lists. When you add an interaction to
      the scene (grab, throw, press), add a line to `headset` so players know. -->
@@ -70,6 +70,22 @@ window.KIT_CHECKS = [
       t.click('#btn-seed');
       t.expect(window.APP.generation === 0, 'Reseed did not take the cube back to generation 0');
       t.expect(window.APP.liveCount > 0, 'Reseed left the cube empty');
+  } },
+
+  { name: 'cells grow into place instead of appearing at full size', run: function (t) {
+      // Driven at set points through the change rather than timed, because how
+      // far a frame lands into it depends on the frame rate — and the swell
+      // overshoots full size on the way, so "bigger" is not the same as "later".
+      var cube = t.find('#cube').components['ca-cube'], running = !window.APP.paused;
+      t.expect(cube, 'the cube of cells is missing');
+      if (running) t.click('#btn-play');                 // hold the clock still
+      t.click('#btn-seed');                              // every cell is newly born
+      var at = function (p) { cube.draw(p); return window.APP.cellScale; };
+      var start = at(0.02), middle = at(0.35), settled = at(1);
+      if (running) t.click('#btn-play');                 // leave it as we found it
+      t.expect(start < 0.35, 'a new cell was drawn near full size at the very start of the change');
+      t.expect(middle > start, 'new cells did not swell as the change played out');
+      t.expect(settled > 0.9 && settled < 1.01, 'new cells did not settle at full size');
   } },
 
   { name: 'New rule switches to a different rule', run: function (t) {
@@ -1383,7 +1399,8 @@ AFRAME.registerComponent('xr-kit', {
       PITCH = 0.065,   // metres between cell centres  → a 1.04 m cube
       SIZE  = 0.040,   // drawn size of one cell: well under the pitch, so the
                        // gaps let you see the structure deep inside the cube
-      MS    = 320;     // milliseconds per generation
+      MS    = 320,     // milliseconds per generation
+      ANIM  = 230;     // of which this much is spent sliding to the new state
 
   // Each rule says how many living neighbours keep a living cell alive
   // (survive) and how many bring a dead one to life (born). `states` is how
@@ -1428,7 +1445,8 @@ AFRAME.registerComponent('xr-kit', {
   // Everything the buttons, the sign and the self-checks read.
   var APP = window.APP = {
     rules: RULES, ruleIndex: 0, generation: 0, liveCount: 0, shownCount: 0,
-    paused: false, reseeds: 0, frozen: 0, dirty: true
+    paused: false, reseeds: 0, frozen: 0,
+    animation: 1, cellScale: 0
   };
   function rule() { return RULES[APP.ruleIndex]; }
 
@@ -1438,7 +1456,7 @@ AFRAME.registerComponent('xr-kit', {
     for (var z = lo; z < lo + side; z++) for (var y = lo; y < lo + side; y++) for (var x = lo; x < lo + side; x++) {
       if (Math.random() < r.fill) { state[(z * N + y) * N + x] = r.states - 1; live++; }
     }
-    APP.generation = 0; APP.frozen = 0; APP.reseeds++; APP.dirty = true;
+    APP.generation = 0; APP.frozen = 0; APP.reseeds++;
     APP.liveCount = live; APP.shownCount = live;
   }
 
@@ -1464,15 +1482,22 @@ AFRAME.registerComponent('xr-kit', {
       if (v) shown++;
     }
     state = out; next = cur;
-    APP.generation++; APP.dirty = true;
+    APP.generation++;
     APP.liveCount = live; APP.shownCount = shown;
     APP.frozen = same ? APP.frozen + 1 : 0;
   }
 
   // A cube that has emptied, settled, or filled itself solid starts over, so
-  // there is always something moving in front of the player.
+  // there is always something moving in front of the player. Losing every
+  // living cell counts as empty even while fading ones are still on their way
+  // out: nothing can be born from a neighbourhood of nothing, unless the rule
+  // says 0 neighbours is a birth, so the cube is finished either way.
   function stale() {
-    return APP.shownCount === 0 || APP.frozen > 12 || APP.liveCount > 0.42 * CELLS;
+    var r = rule();
+    return APP.shownCount === 0
+        || (APP.liveCount === 0 && !r.bornSet[0])
+        || APP.frozen > 12
+        || APP.liveCount > 0.42 * CELLS;
   }
 
   APP.step   = function () { step(); };
@@ -1487,7 +1512,23 @@ AFRAME.registerComponent('xr-kit', {
 
   /* ---- the cube of cells ------------------------------------------------
      One InstancedMesh draws every cell in a single draw call — 4096 separate
-     boxes would be 4096 of them, far past what the headset's GPU will take. */
+     boxes would be 4096 of them, far past what the headset's GPU will take.
+
+     Cells do not snap between generations: every frame draws the cube part
+     way between the generation before and the one now, so a new cell swells
+     into place with a little overshoot and a spin, a dying one shrinks and
+     darkens away, and a cell fading through the shades of a 10-shade rule
+     slides between them. `state` holds the generation now; the buffer swap
+     in step() leaves the one before it in `next`, which is what the drawing
+     reads back. */
+  function easeOutCubic(t) { var u = 1 - t; return 1 - u * u * u; }
+  function easeOutBack(t) {                          // overshoots, then settles: a pop
+    var u = t - 1, c = 1.6;
+    return 1 + (c + 1) * u * u * u + c * u * u;
+  }
+  var MIN_SIZE = 0.45,   // a cell on its last shade is this fraction of full size
+      SHADES   = 32;     // steps in the precomputed colour ramp
+
   AFRAME.registerComponent('ca-cube', {
     init: function () {
       var THREE = AFRAME.THREE;
@@ -1498,6 +1539,9 @@ AFRAME.registerComponent('xr-kit', {
       );
       this.mesh.frustumCulled = false;   // the instance count changes every generation
       this.mesh.count = 0;
+      this.mesh.setColorAt(0, new THREE.Color(0xffffff));      // allocates instanceColor
+      this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
       this.el.setObject3D('cells', this.mesh);
 
       var ext = N * PITCH;
@@ -1507,37 +1551,89 @@ AFRAME.registerComponent('xr-kit', {
       );
       this.el.setObject3D('frame', edges);
 
+      // Colour depends only on the cell's height and how alive it is, so the
+      // whole ramp is worked out once instead of thousands of times a frame.
+      var c = new THREE.Color();
+      this.pal = [];
+      for (var y = 0; y < N; y++) {
+        var row = [];
+        for (var k = 0; k < SHADES; k++) {
+          var f = k / (SHADES - 1);
+          c.setHSL(0.62 * (1 - y / (N - 1)), 0.34 + 0.4 * f, 0.3 + 0.34 * f);
+          row.push([c.r, c.g, c.b]);
+        }
+        this.pal.push(row);
+      }
+
       this.dummy = new THREE.Object3D();
-      this.colour = new THREE.Color();
-      this.acc = 0;
-      this.draw();
+      this.age = ANIM;                   // milliseconds since the generation changed
+      this.gen = APP.generation;
+      this.seeds = APP.reseeds;
+      this.draw(1);
     },
     tick: function (time, delta) {
-      if (!APP.paused) {
-        this.acc += delta || 0;
-        while (this.acc >= MS) { this.acc -= MS; step(); if (stale()) seed(); }
+      var d = Math.min(delta || 0, 120);               // a long stall must not fast-forward
+      if (APP.generation !== this.gen || APP.reseeds !== this.seeds) {
+        this.gen = APP.generation; this.seeds = APP.reseeds;    // Step, Reseed or New rule
+        this.age = 0;
       }
-      if (APP.dirty) this.draw();
+      if (APP.paused) {
+        this.age = Math.min(this.age + d, ANIM);       // a hand-pressed change still plays out
+      } else {
+        this.age += d;
+        while (this.age >= MS) {
+          this.age -= MS;
+          step(); if (stale()) seed();
+          this.gen = APP.generation; this.seeds = APP.reseeds;  // ours, not an outside change
+        }
+      }
+      this.draw(Math.min(1, this.age / ANIM));
     },
-    draw: function () {
-      var top = rule().states - 1, mesh = this.mesh, d = this.dummy, c = this.colour,
-          half = (N - 1) / 2, count = 0;
-      for (var z = 0; z < N; z++) for (var y = 0; y < N; y++) for (var x = 0; x < N; x++) {
-        var s = state[(z * N + y) * N + x];
-        if (!s) continue;
-        var frac = top > 1 ? s / top : 1;          // 1 = fully alive, lower = fading out
-        d.position.set((x - half) * PITCH, (y - half) * PITCH, (z - half) * PITCH);
-        d.scale.setScalar(0.45 + 0.55 * frac);     // dying cells shrink as they fade
-        d.updateMatrix();
-        mesh.setMatrixAt(count, d.matrix);
-        c.setHSL(0.62 * (1 - y / (N - 1)), 0.34 + 0.4 * frac, 0.3 + 0.34 * frac);
-        mesh.setColorAt(count, c);
-        count++;
+    draw: function (p) {
+      var top = rule().states - 1, mesh = this.mesh, d = this.dummy, pal = this.pal,
+          ma = mesh.instanceMatrix.array, ca = mesh.instanceColor.array,
+          half = (N - 1) / 2, count = 0, span = 1 - MIN_SIZE,
+          pop = easeOutBack(p), ease = easeOutCubic(p), spin = (1 - ease) * 0.9,
+          cur = state, was = next;                     // `next` holds the generation before
+      for (var z = 0; z < N; z++) for (var y = 0; y < N; y++) {
+        var row = pal[y];                              // the colours at this height
+        for (var x = 0; x < N; x++) {
+          var i = (z * N + y) * N + x, s = cur[i], q = was[i];
+          if (!s && !q) continue;
+          var fs = s ? (top > 1 ? s / top : 1) : 0,    // 1 = fully alive, 0 = gone
+              fq = q ? (top > 1 ? q / top : 1) : 0,
+              born = !q,                               // nothing there a moment ago
+              e = born ? pop : ease,
+              to = s ? MIN_SIZE + span * fs : 0,
+              from = q ? MIN_SIZE + span * fq : 0,
+              size = from + (to - from) * e;
+          if (size < 0.004) continue;                  // not there yet, or gone
+          var px = (x - half) * PITCH, py = (y - half) * PITCH, pz = (z - half) * PITCH,
+              o = count * 16;
+          if (born && spin > 0.01) {                   // new cells spin as they swell
+            d.position.set(px, py, pz);
+            d.scale.setScalar(size);
+            d.rotation.set(spin * 0.7, spin, spin * 0.3);
+            d.updateMatrix();
+            d.matrix.toArray(ma, o);
+          } else {                                     // scale and position only: much cheaper
+            ma[o] = size;  ma[o + 1] = 0; ma[o + 2] = 0;     ma[o + 3] = 0;
+            ma[o + 4] = 0; ma[o + 5] = size; ma[o + 6] = 0;  ma[o + 7] = 0;
+            ma[o + 8] = 0; ma[o + 9] = 0; ma[o + 10] = size; ma[o + 11] = 0;
+            ma[o + 12] = px; ma[o + 13] = py; ma[o + 14] = pz; ma[o + 15] = 1;
+          }
+          var f = fq + (fs - fq) * e,
+              col = row[f >= 1 ? SHADES - 1 : f <= 0 ? 0 : (f * (SHADES - 1)) | 0],
+              k = count * 3;
+          ca[k] = col[0]; ca[k + 1] = col[1]; ca[k + 2] = col[2];
+          if (!count) APP.cellScale = size;          // what the first cell is drawn at
+          count++;
+        }
       }
       mesh.count = count;
       mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      APP.dirty = false;
+      mesh.instanceColor.needsUpdate = true;
+      APP.animation = p;
     }
   });
 

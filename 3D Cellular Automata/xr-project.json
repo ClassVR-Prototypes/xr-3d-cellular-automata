@@ -5,8 +5,8 @@
   "concept": "A 16x16x16 cube of cells that live and die by 3D Life-style rules, floating in front of the player; buttons pause, step, reseed and cycle six rules.",
   "dof": 6,
   "created": "2026-09-16T11:35:54Z",
-  "build": 1,
-  "sourceHash": "215119bdf8f8975ce20c4ab0d58b50a701c3f5cda93ad08302b8a54951925f1a",
+  "build": 2,
+  "sourceHash": "aadfcc0e513d58b9ed23175e7fd2b979331ab1f1ed5fbb488cd8fad58dc70b86",
   "libraries": [
     "aframe"
   ],
@@ -28,7 +28,7 @@
   "pages": {
     "url": "https://classvr-prototypes.github.io/xr-3d-cellular-automata/3d-cellular-automata/",
     "repo": "ClassVR-Prototypes/xr-3d-cellular-automata",
-    "build": 1,
-    "lastShared": "2026-09-16T11:53:19Z"
+    "build": 2,
+    "lastShared": "2026-09-16T13:52:22Z"
   }
 }
