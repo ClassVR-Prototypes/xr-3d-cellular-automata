@@ -72,6 +72,22 @@ window.KIT_CHECKS = [
       t.expect(window.APP.liveCount > 0, 'Reseed left the cube empty');
   } },
 
+  { name: 'cells grow into place instead of appearing at full size', run: function (t) {
+      // Driven at set points through the change rather than timed, because how
+      // far a frame lands into it depends on the frame rate — and the swell
+      // overshoots full size on the way, so "bigger" is not the same as "later".
+      var cube = t.find('#cube').components['ca-cube'], running = !window.APP.paused;
+      t.expect(cube, 'the cube of cells is missing');
+      if (running) t.click('#btn-play');                 // hold the clock still
+      t.click('#btn-seed');                              // every cell is newly born
+      var at = function (p) { cube.draw(p); return window.APP.cellScale; };
+      var start = at(0.02), middle = at(0.35), settled = at(1);
+      if (running) t.click('#btn-play');                 // leave it as we found it
+      t.expect(start < 0.35, 'a new cell was drawn near full size at the very start of the change');
+      t.expect(middle > start, 'new cells did not swell as the change played out');
+      t.expect(settled > 0.9 && settled < 1.01, 'new cells did not settle at full size');
+  } },
+
   { name: 'New rule switches to a different rule', run: function (t) {
       var was = window.APP.ruleIndex, name = window.APP.rules[was].name;
       t.click('#btn-rule');
