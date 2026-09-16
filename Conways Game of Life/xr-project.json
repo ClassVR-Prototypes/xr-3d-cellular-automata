@@ -5,8 +5,8 @@
   "concept": "Conway's Game of Life (B3/S23) played out on a grid standing in front of the player, with each generation leaving a fading layer behind it so the pattern grows into a 3D sculpture of its own history; buttons play, step, clear, reseed and load classic patterns, and you can paint cells straight onto the board.",
   "dof": 6,
   "created": "2026-09-16T14:46:47Z",
-  "build": 1,
-  "sourceHash": "b1b7d13b7fdaafbf89b6521f1b8dbb5190aafa8ff0c273d44985e5392c7052a1",
+  "build": 2,
+  "sourceHash": "bf772bf93c85d7311a7783b200654b1bc36b22ae13acb9759c5dbe0a0a36b6c6",
   "libraries": [
     "aframe"
   ],
@@ -28,7 +28,7 @@
   "pages": {
     "url": "https://classvr-prototypes.github.io/xr-3d-cellular-automata/conways-game-of-life/",
     "repo": "ClassVR-Prototypes/xr-3d-cellular-automata",
-    "build": 1,
-    "lastShared": "2026-09-16T15:07:25Z"
+    "build": 2,
+    "lastShared": "2026-09-16T15:38:15Z"
   }
 }
